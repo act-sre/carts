@@ -21,6 +21,7 @@ resource_types:
   source:
     repository: zlabjp/kubernetes-resource
     tag: "1.9"
+    
 resources:
 - name: version
   type: semver
@@ -67,7 +68,8 @@ resources:
     namespace: sock-shop
     token: ((k8s-token))
     certificate_authority: ((k8s-ca))
-
+    insecure_skip_tls_verify: true
+ 
 jobs:
 - name: maven-build
   plan:
@@ -117,7 +119,7 @@ jobs:
     params:
       build: workspace
       cache_tag: version
-      tag_as_latest: true
+#      tag_as_latest: true
 
 - name: deploy-to-dev  
   plan:
@@ -131,6 +133,7 @@ jobs:
     params:
       #kubectl: get pods
       kubectl: apply -f ./git-carts/manifest/*.yaml
+
 #- name: build-docker-image
 #  serial: true
 #  plan:
@@ -143,6 +146,7 @@ jobs:
 #    trigger: true
 #    passed:
 #      - maven-build
+#
 #  - put: docker-registry
 #    params:
 #      build: workspace
