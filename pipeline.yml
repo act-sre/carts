@@ -1,0 +1,152 @@
+---
+groups:
+- name: build-pipeline
+  jobs:
+  - maven-build
+  #- build-docker-image
+  - deploy-to-dev
+    #  - run-health-check
+    #  - run-functional-check
+    #  - deploy-to-staging
+    #  - run-e2e-check
+    #  - validate-e2e-check
+    #  - deploy-to-production
+    #  - promote-new-version
+  #- mark-for-staging-ready
+  # - upload-git-release
+
+resource_types:
+- name: kubernetes
+  type: docker-image
+  source:
+    repository: zlabjp/kubernetes-resource
+    tag: "1.9"
+resources:
+- name: version
+  type: semver
+  source:
+    driver: git
+    uri: https://gitlab.actsre.cf/((source-code))/carts.git
+    username: ((gitlab-username))
+    password: ((gitlab-access-token))
+    branch: master
+    file: version
+
+- name: carts-release-bucket
+  type: s3
+  source:
+    regexp: carts/carts-(.*).jar
+    endpoint: https://minio.actsre.cf
+    bucket: ((s3-bucket))
+    access_key_id: ((s3-access-key-id))
+    secret_access_key: ((s3-secret-access-key))
+
+
+- name: git-carts
+  type: git
+  source:
+    branch: master
+    uri: https://gitlab.actsre.cf/((source-code))/carts.git
+    username: ((gitlab-username))
+    password: ((gitlab-access-token))
+
+- name: docker-registry
+  type: docker-image
+  icon: docker
+  source:
+    repository: registry.actsre.cf/((source-code))/carts
+    tag: latest
+    username: ((docker-registry-username))
+    password: ((docker-registry-password))
+
+- name: kubernetes-dev
+  type: kubernetes
+  icon: kubernetes
+  source:
+    server: ((k8s-server))
+    namespace: sock-shop
+    token: ((k8s-token))
+    certificate_authority: ((k8s-ca))
+
+jobs:
+- name: maven-build
+  plan:
+  - get: git-carts
+    trigger: true
+  - get: version
+    params: { pre: build }
+  - task: mvn-build
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source: {repository: maven, tag: 3.2-jdk-8}
+      inputs:
+      - name: git-carts
+      - name: version
+      outputs:
+      - name: workspace
+      run:
+        path: /bin/sh
+        args:
+        - -exc
+        - |
+          # Caching Maven
+          export ROOT_FOLDER=$( pwd )
+          M2_HOME="${HOME}/.m2"
+          M2_CACHE="${ROOT_FOLDER}/maven"
+          echo "Generating symbolic link for Maven cache"
+          ln -s "${M2_CACHE}" "${M2_HOME}"
+
+          # Build App
+          output_dir=workspace
+          cd git-carts
+          mvn -DskipTests package
+          cd ..
+          mv git-carts/target/carts.jar git-carts/target/carts-$(cat version/number).jar
+
+          mkdir "${output_dir}/target"
+          cp git-carts/target/carts-*.jar "${output_dir}/target"
+          cp git-carts/Dockerfile "${output_dir}/"
+      caches:
+        - path: maven
+  - put: carts-release-bucket
+    params:
+      file: workspace/target/carts-*.jar
+  - put: docker-registry
+    params:
+      build: workspace
+      cache_tag: version
+      tag_as_latest: true
+
+- name: deploy-to-dev  
+  plan:
+  - get: docker-registry
+    trigger: true
+    passed:
+    - maven-build
+  - get: git-carts
+  - get: version
+  - put: kubernetes-dev
+    params:
+      #kubectl: get pods
+      kubectl: apply -f ./git-carts/manifest/*.yaml
+#- name: build-docker-image
+#  serial: true
+#  plan:
+#  - get: version
+#  - get: git-carts
+#    trigger: true
+#    passed:
+#      - maven-build
+#  - get: carts-release-bucket
+#    trigger: true
+#    passed:
+#      - maven-build
+#  - put: docker-registry
+#    params:
+#      build: workspace
+#      cache_tag: latest
+#      cache_tag: version
+#      tag_as_latest: true
+

@@ -69,8 +69,13 @@ resources:
 - name: carts-release-bucket
   type: s3
   source:
-    region_name: eu-west-1
+      #region_name: eu-west-1
+      #regexp: carts/carts-(.*).jar
+      #bucket: ((s3-bucket))
+      #access_key_id: ((s3-access-key-id))
+      #secret_access_key: ((s3-secret-access-key))
     regexp: carts/carts-(.*).jar
+    endpoint: https://minio.actsre.cf
     bucket: ((s3-bucket))
     access_key_id: ((s3-access-key-id))
     secret_access_key: ((s3-secret-access-key))
